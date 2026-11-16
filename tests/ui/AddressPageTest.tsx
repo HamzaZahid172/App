@@ -91,6 +91,58 @@ describe('AddressPageTest', () => {
         expect(stateInputAfterParams.props.value).toEqual('Test');
     });
 
+    it('applies a state URL param to a saved non-US address', async () => {
+        await TestHelper.signInWithTestUser();
+        await act(async () => {
+            await Onyx.set(ONYXKEYS.PRIVATE_PERSONAL_DETAILS, {
+                addresses: [{country: 'AR', state: 'Buenos Aires', city: 'Buenos Aires', zip: 'C1000', street: 'Example Street'}],
+            });
+            await Onyx.set(ONYXKEYS.IS_LOADING_APP, false);
+        });
+        await waitForBatchedUpdatesWithAct();
+
+        renderPage(SCREENS.SETTINGS.PROFILE.ADDRESS);
+        await waitForBatchedUpdatesWithAct();
+
+        await act(async () => {
+            Navigation.setParams({state: 'MO'});
+        });
+        await waitForBatchedUpdatesWithAct();
+
+        expect(screen.getByText('United States')).toBeOnTheScreen();
+        expect(screen.getByText('Missouri')).toBeOnTheScreen();
+        expect(screen.queryByLabelText('State / Province')).not.toBeOnTheScreen();
+    });
+
+    it('keeps the state URL override when private details are updated afterwards', async () => {
+        await TestHelper.signInWithTestUser();
+        await act(async () => {
+            await Onyx.set(ONYXKEYS.PRIVATE_PERSONAL_DETAILS, {
+                addresses: [{country: 'US', state: 'CA', city: 'San Francisco', zip: '94105', street: 'Example Street'}],
+            });
+            await Onyx.set(ONYXKEYS.IS_LOADING_APP, false);
+        });
+        await waitForBatchedUpdatesWithAct();
+
+        renderPage(SCREENS.SETTINGS.PROFILE.ADDRESS);
+        await waitForBatchedUpdatesWithAct();
+
+        await act(async () => {
+            Navigation.setParams({state: 'MO'});
+        });
+        await waitForBatchedUpdatesWithAct();
+        expect(screen.getByText('Missouri')).toBeOnTheScreen();
+
+        await act(async () => {
+            await Onyx.merge(ONYXKEYS.PRIVATE_PERSONAL_DETAILS, {
+                addresses: [{country: 'US', state: 'NY', city: 'New York', zip: '10001', street: 'Example Street'}],
+            });
+        });
+        await waitForBatchedUpdatesWithAct();
+
+        expect(screen.getByText('Missouri')).toBeOnTheScreen();
+    });
+
     it('should prefill address line 2 from explicit street2', async () => {
         await TestHelper.signInWithTestUser();
         await act(async () => {
