@@ -4,6 +4,7 @@ import DelegateNoAccessWrapper from '@components/DelegateNoAccessWrapper';
 import HeaderWithBackButton from '@components/HeaderWithBackButton';
 import ScreenWrapper from '@components/ScreenWrapper';
 
+import useGeographicalStateAndCountryFromRoute from '@hooks/useGeographicalStateAndCountryFromRoute';
 import useLocalize from '@hooks/useLocalize';
 import useThemeStyles from '@hooks/useThemeStyles';
 
@@ -20,7 +21,7 @@ import type {Address} from '@src/types/onyx/PrivatePersonalDetails';
 
 import type {OnyxEntry} from 'react-native-onyx';
 
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {View} from 'react-native';
 
 type AddressPageProps = {
@@ -43,19 +44,27 @@ type AddressPageProps = {
 function AddressPage({title, address, updateAddress, isLoadingApp = true, backTo, defaultCountry, shouldRequireZip}: AddressPageProps) {
     const styles = useThemeStyles();
     const {translate} = useLocalize();
+    const {state: stateFromUrl, country: countryFromUrl} = useGeographicalStateAndCountryFromRoute();
+
+    // A valid state route implies the US unless an explicit country parameter says otherwise.
+    // Capture these values before the child selectors consume and clear the route parameters.
+    const routeCountry = countryFromUrl ?? (stateFromUrl ? CONST.COUNTRY.US : undefined);
+    const routeState = routeCountry === CONST.COUNTRY.US ? stateFromUrl : undefined;
+    const shouldResetDependentFields = Boolean(routeState || (routeCountry && routeCountry !== address?.country));
+    const hasEditedAddress = useRef(Boolean(routeCountry || routeState));
 
     // Check if country is valid
     const {street} = address ?? {};
     const [street1, legacyStreet2] = street ? street.split('\n') : [undefined, undefined];
     // nullish coalescing cannot be used if explicit line 2 can be an empty string
     const street2 = address?.street2 || legacyStreet2;
-    const [currentCountry, setCurrentCountry] = useState(address?.country ?? defaultCountry);
-    const [state, setState] = useState(address?.state);
-    const [city, setCity] = useState(address?.city);
-    const [zipcode, setZipcode] = useState(address?.zip);
+    const [currentCountry, setCurrentCountry] = useState(routeCountry ?? address?.country ?? defaultCountry);
+    const [state, setState] = useState(routeState ?? (shouldResetDependentFields ? '' : address?.state));
+    const [city, setCity] = useState(shouldResetDependentFields ? '' : address?.city);
+    const [zipcode, setZipcode] = useState(shouldResetDependentFields ? '' : address?.zip);
 
     useEffect(() => {
-        if (!address) {
+        if (!address || hasEditedAddress.current) {
             return;
         }
         setState(address.state);
@@ -65,6 +74,33 @@ function AddressPage({title, address, updateAddress, isLoadingApp = true, backTo
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [address?.state, address?.country, address?.city, address?.zip]);
 
+    useEffect(() => {
+        if (!countryFromUrl && !stateFromUrl) {
+            return;
+        }
+        hasEditedAddress.current = true;
+        const nextCountry = countryFromUrl ?? CONST.COUNTRY.US;
+        const nextState = nextCountry === CONST.COUNTRY.US ? stateFromUrl : undefined;
+
+        if (currentCountry !== nextCountry) {
+            setCurrentCountry(nextCountry);
+            setState('');
+            setCity('');
+            setZipcode('');
+        }
+        if (nextState) {
+            setState(nextState);
+            setCity('');
+            setZipcode('');
+        }
+        // An explicit non-US country takes priority over an incompatible US state query.
+        if (countryFromUrl && countryFromUrl !== CONST.COUNTRY.US && stateFromUrl) {
+            Navigation.setParams({state: undefined});
+        }
+        // The country/state selectors consume compatible route params after the form mounts.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [countryFromUrl, stateFromUrl]);
+
     const handleAddressChange = (value: unknown, key: unknown) => {
         const addressPart = value as string;
         const addressPartKey = key as keyof Address;
@@ -72,11 +108,15 @@ function AddressPage({title, address, updateAddress, isLoadingApp = true, backTo
         if (addressPartKey !== INPUT_IDS.COUNTRY && addressPartKey !== INPUT_IDS.STATE && addressPartKey !== INPUT_IDS.CITY && addressPartKey !== INPUT_IDS.ZIP_POST_CODE) {
             return;
         }
-        if (addressPartKey === INPUT_IDS.COUNTRY && addressPart !== currentCountry) {
-            setCurrentCountry(getCountryCode(addressPart) ?? '');
-            setState('');
-            setCity('');
-            setZipcode('');
+        hasEditedAddress.current = true;
+        if (addressPartKey === INPUT_IDS.COUNTRY) {
+            if (addressPart !== currentCountry) {
+                setCurrentCountry(getCountryCode(addressPart) ?? '');
+                setState('');
+                setCity('');
+                setZipcode('');
+            }
+            // A same-country route value must never fall through into the ZIP handler.
             return;
         }
         if (addressPartKey === INPUT_IDS.STATE) {
