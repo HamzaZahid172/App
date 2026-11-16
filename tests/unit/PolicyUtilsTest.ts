@@ -6045,6 +6045,51 @@ describe('PolicyUtils', () => {
                 expect(result['employee@test.com']).toBeUndefined();
             });
 
+            it('does not exclude empty secondary-login placeholders from new invitations', () => {
+                const list: PolicyEmployeeList = {
+                    'secondary@test.com': {pendingAction: null},
+                    'empty@test.com': {},
+                    'active@test.com': {role: CONST.POLICY.ROLE.USER},
+                };
+                const result = getExcludedUsers(list);
+                expect(result['secondary@test.com']).toBeUndefined();
+                expect(result['empty@test.com']).toBeUndefined();
+                expect(result['active@test.com']).toBe(true);
+            });
+
+            it('excludes both primary and secondary logins while membership is active', () => {
+                const list: PolicyEmployeeList = {
+                    'primary@test.com': {role: CONST.POLICY.ROLE.USER},
+                    'secondary@test.com': {pendingAction: null},
+                };
+                const result = getExcludedUsers(list, {'secondary@test.com': 'primary@test.com'});
+                expect(result['primary@test.com']).toBe(true);
+                expect(result['secondary@test.com']).toBe(true);
+            });
+
+            it('does not exclude secondary login when the paired primary member is removed', () => {
+                const list: PolicyEmployeeList = {
+                    'primary@test.com': {pendingAction: CONST.RED_BRICK_ROAD_PENDING_ACTION.DELETE, role: CONST.POLICY.ROLE.USER},
+                    'secondary@test.com': {pendingAction: null},
+                };
+                const result = getExcludedUsers(list, {'secondary@test.com': 'primary@test.com'});
+                expect(result['primary@test.com']).toBeUndefined();
+                expect(result['secondary@test.com']).toBeUndefined();
+            });
+
+            it('does not exclude a secondary login when its primary member is absent or invalid', () => {
+                const list: PolicyEmployeeList = {
+                    'secondary@test.com': {pendingAction: null},
+                    'invalid@test.com': {role: CONST.POLICY.ROLE.USER, errors: {failed: 'Unable to invite'}},
+                };
+                const result = getExcludedUsers(list, {
+                    'secondary@test.com': 'missing@test.com',
+                    'alias@test.com': 'invalid@test.com',
+                });
+                expect(result['secondary@test.com']).toBeUndefined();
+                expect(result['alias@test.com']).toBeUndefined();
+            });
+
             it('returns only Expensify emails when the employee list is undefined', () => {
                 const result = getExcludedUsers(undefined);
                 expect(Object.keys(result)).toEqual([...CONST.EXPENSIFY_EMAILS]);

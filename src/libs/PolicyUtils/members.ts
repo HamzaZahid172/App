@@ -11,7 +11,7 @@ import {generateAccountID} from '@libs/UserUtils';
 import CONST from '@src/CONST';
 import type {PersonalDetailsList, Policy, PolicyEmployeeList} from '@src/types/onyx';
 import type PolicyEmployee from '@src/types/onyx/PolicyEmployee';
-import {isEmptyObject} from '@src/types/utils/EmptyObject';
+import {isEmptyObject, isEmptyValueObject} from '@src/types/utils/EmptyObject';
 
 import type {OnyxCollection, OnyxEntry} from 'react-native-onyx';
 
@@ -207,19 +207,34 @@ function getAccountIDForSubmitManagerEmail(
 /**
  * Get login list that we should not show in the workspace invite options
  */
-function getIneligibleInvitees(employeeList?: PolicyEmployeeList): string[] {
+function getIneligibleInvitees(employeeList?: PolicyEmployeeList, primaryLoginsInvited?: Record<string, string>): string[] {
     const policyEmployeeList = employeeList ?? {};
     const memberEmailsToExclude: string[] = [...CONST.EXPENSIFY_EMAILS];
-    for (const email of Object.keys(policyEmployeeList)) {
-        const policyEmployee = policyEmployeeList?.[email];
-        // Policy members that are pending delete or have errors are not valid and we should show them in the invite options (don't exclude them).
-        if (policyEmployee?.pendingAction === CONST.RED_BRICK_ROAD_PENDING_ACTION.DELETE || Object.keys(policyEmployee?.errors ?? {}).length > 0) {
+    const activeMemberEmails = new Set<string>();
+
+    for (const [email, policyEmployee] of Object.entries(policyEmployeeList)) {
+        // Inviting a secondary login can leave a role-less {pendingAction: null} placeholder.
+        // Such entries are not members and must not block future invitations.
+        if (
+            !email ||
+            isEmptyValueObject(policyEmployee) ||
+            !policyEmployee?.role ||
+            policyEmployee.pendingAction === CONST.RED_BRICK_ROAD_PENDING_ACTION.DELETE ||
+            Object.keys(policyEmployee.errors ?? {}).length > 0
+        ) {
             continue;
         }
-        if (!email) {
-            continue;
-        }
+
+        activeMemberEmails.add(email);
         memberEmailsToExclude.push(email);
+    }
+
+    // The secondary login must remain ineligible while its primary login is an active member.
+    // A stale mapping is not sufficient to block an invitation after the primary is removed.
+    for (const [secondaryLogin, primaryLogin] of Object.entries(primaryLoginsInvited ?? {})) {
+        if (secondaryLogin && activeMemberEmails.has(primaryLogin) && !activeMemberEmails.has(secondaryLogin)) {
+            memberEmailsToExclude.push(secondaryLogin);
+        }
     }
 
     return memberEmailsToExclude;
@@ -228,8 +243,8 @@ function getIneligibleInvitees(employeeList?: PolicyEmployeeList): string[] {
 /**
  * Get excluded users as a Record for use in search selector
  */
-function getExcludedUsers(employeeList?: PolicyEmployeeList): Record<string, boolean> {
-    return Object.fromEntries(getIneligibleInvitees(employeeList).map((login) => [login, true]));
+function getExcludedUsers(employeeList?: PolicyEmployeeList, primaryLoginsInvited?: Record<string, string>): Record<string, boolean> {
+    return Object.fromEntries(getIneligibleInvitees(employeeList, primaryLoginsInvited).map((login) => [login, true]));
 }
 
 /**
