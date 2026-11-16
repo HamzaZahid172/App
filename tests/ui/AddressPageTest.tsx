@@ -143,6 +143,26 @@ describe('AddressPageTest', () => {
         expect(screen.getByText('Missouri')).toBeOnTheScreen();
     });
 
+    it('preserves the postal code when the URL selects the already-active country', async () => {
+        await TestHelper.signInWithTestUser();
+        await act(async () => {
+            await Onyx.set(ONYXKEYS.PRIVATE_PERSONAL_DETAILS, {
+                addresses: [{country: 'US', state: 'NY', city: 'New York', zip: '10001', street: 'Example Street'}],
+            });
+            await Onyx.set(ONYXKEYS.IS_LOADING_APP, false);
+        });
+        await waitForBatchedUpdatesWithAct();
+
+        renderPage(SCREENS.SETTINGS.PROFILE.ADDRESS);
+        await waitForBatchedUpdatesWithAct();
+
+        await act(async () => {
+            Navigation.setParams({country: 'US'});
+        });
+        await waitForBatchedUpdatesWithAct();
+        expect(screen.getByDisplayValue('10001')).toBeOnTheScreen();
+    });
+
     it('should prefill address line 2 from explicit street2', async () => {
         await TestHelper.signInWithTestUser();
         await act(async () => {
